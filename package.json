@@ -2,6 +2,7 @@
 	"name": "ipsum-cron-worker",
 	"version": "0.0.0",
 	"private": true,
+	"license": "MIT",
 	"scripts": {
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev --test-scheduled",
@@ -17,8 +18,5 @@
 		"typescript": "^5.5.2",
 		"vitest": "^4.1.0",
 		"wrangler": "^4.76.0"
-	},
-	"dependencies": {
-		"zod": "^4.3.6"
 	}
 }

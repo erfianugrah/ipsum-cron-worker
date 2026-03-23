@@ -129,4 +129,4 @@ Level 1 alone has ~200k IPs. You need an Enterprise plan (or to skip level 1) to
 
 ## License
 
-ISC
+MIT -- Erfi Anugrah
