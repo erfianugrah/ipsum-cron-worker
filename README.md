@@ -140,4 +140,4 @@ On failure: `run_failed` with `error`, `stack`, `durationMs`.
 
 Level 1 alone has ~200k IPs. Use `IPSUM_LEVELS=3,4,5,6,7,8` on non-Enterprise plans to stay within limits.
 
-[## MIT License](./LICENSE)
+[MIT License](./LICENSE)
