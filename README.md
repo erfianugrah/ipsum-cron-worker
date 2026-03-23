@@ -1,20 +1,21 @@
 # ipsum-cron-worker
 
-Cloudflare Worker that syncs the [IPsum](https://github.com/stamparm/ipsum) threat intelligence feed into 8 Cloudflare IP Lists (`ipsum_level_1` through `ipsum_level_8`), one per threat level. Runs daily via cron trigger and exposes a status dashboard at [ipsum.erfi.io](https://ipsum.erfi.io).
+Cloudflare Worker that syncs the [IPsum](https://github.com/stamparm/ipsum) threat intelligence feed into Cloudflare IP Lists — one per threat level. Runs daily via cron trigger and exposes a status dashboard at [ipsum.erfi.io](https://ipsum.erfi.io).
 
 ## How it works
 
-1. **Fetch** -- Downloads `ipsum.txt` from GitHub (~200k IPs with blacklist hit scores 1--8)
-2. **Parse** -- Buckets IPs by exact score using fast regex validation, then precomputes cumulative arrays (level N = all IPs appearing on N+ blacklists)
-3. **Sync** -- For each level 1--8, ensures a Cloudflare IP list exists (`ipsum_level_N`) and replaces all items via the Lists API, polling bulk operations to completion
-4. **Log** -- Every step emits structured JSON logs with a `runId` for end-to-end tracing
+1. **Fetch** — Downloads `ipsum.txt` from GitHub (~200k IPs with blacklist hit scores 1–8). Uses `ETag` / `If-None-Match` to skip the download when the feed hasn't changed.
+2. **Parse** — Buckets IPs by exact score using fast regex validation, then precomputes cumulative arrays (level N = all IPs appearing on N+ blacklists).
+3. **Sync** — For each configured level, ensures a Cloudflare IP list exists (`ipsum_level_N`) and replaces all items via the Lists API, polling bulk operations to completion. Per-level errors are caught so one failure doesn't block the rest.
+4. **Store** — Writes sync state (run ID, duration, per-level results, errors) to KV for the status dashboard.
+5. **Log** — Every step emits structured JSON logs with a `runId` for end-to-end tracing.
 
 ## Endpoints
 
 | Path | Description |
 |------|-------------|
-| `GET /` | HTML status dashboard showing all 8 lists, IP counts, and last update time |
-| `GET /trigger` | Manually trigger a sync; returns JSON with results |
+| `GET /` | HTML status dashboard showing all lists, IP counts, last sync state, and timing |
+| `GET /trigger` | Manually trigger a sync; returns JSON with full sync state |
 
 ## Setup
 
@@ -36,6 +37,14 @@ npm install
 ```sh
 npx wrangler secret put CF_ACCOUNT_ID
 npx wrangler secret put CF_API_TOKEN
+```
+
+### Configure levels (optional)
+
+By default all 8 levels are synced. To sync only specific levels (e.g. 3–8 to stay within non-Enterprise list item limits), set the `IPSUM_LEVELS` env var in the Cloudflare dashboard or `wrangler.jsonc`:
+
+```jsonc
+"vars": { "IPSUM_LEVELS": "3,4,5,6,7,8" }
 ```
 
 ### Deploy
@@ -64,7 +73,7 @@ curl "http://localhost:8787/__scheduled?cron=*+*+*+*+*"
 
 ## Testing
 
-57 tests across 6 test files using Vitest + `@cloudflare/vitest-pool-workers`:
+74 tests across 6 test files using Vitest + `@cloudflare/vitest-pool-workers`:
 
 ```sh
 npm test                                      # run all tests once
@@ -77,45 +86,50 @@ npx vitest run -t "test name pattern"         # by name
 
 | File | Tests | Covers |
 |------|-------|--------|
-| `test/consts.test.ts` | 5 | List naming, CF constraints, description limits |
-| `test/log.test.ts` | 4 | Structured JSON output, runId correlation, log levels |
-| `test/ipsum.test.ts` | 17 | Parsing (comments, blanks, invalid IPs, bad scores), cumulative arrays, `fetchIpsum` success/failure/network error, structured logs |
-| `test/cloudflare-lists.test.ts` | 13 | Bulk op polling (success, retry, failure, timeout), `ensureLists` (create/reuse/error), `replaceListItems` (normal, empty, error), `syncAllLists` e2e |
-| `test/status-page.test.ts` | 10 | `fetchListStatus` (full, partial, empty, filtering), `renderStatusPage` HTML (stats, rows, missing levels, links) |
-| `test/index.test.ts` | 8 | Scheduled handler (full run, error, breadcrumb ordering), fetch handler (`/trigger`, error 500, `/`, unknown paths, manual trigger logs) |
+| `test/consts.test.ts` | 13 | List naming, CF constraints, description limits, `parseLevels` (defaults, ranges, dedup, edge cases) |
+| `test/log.test.ts` | 4 | Structured JSON output, `runId` correlation across all log levels |
+| `test/ipsum.test.ts` | 21 | Parsing (comments, blanks, invalid IPs, non-integer scores, out-of-range), cumulative arrays (subset property), `fetchIpsum` (success, 404, network error, ETag 304, ETag caching, no-KV mode) |
+| `test/cloudflare-lists.test.ts` | 16 | Bulk op polling (success, retry, failure, timeout), `ensureLists` (create all, reuse, partial, subset, API error), `replaceListItems` (normal, empty, error), `syncAllLists` (e2e, ordering, subset levels, per-level error resilience) |
+| `test/status-page.test.ts` | 12 | `fetchListStatus` (full, partial, empty, filtering), `renderStatusPage` (HTML structure, stats, missing levels, links, sync state display, skipped state, error highlighting) |
+| `test/index.test.ts` | 8 | Scheduled handler (runId correlation, error path, breadcrumb ordering, KV persistence), fetch handler (`/trigger` success/error, `/`, unknown paths, manual trigger log correlation) |
 
 ## Architecture
 
 ```
 src/
-  index.ts              Entry point -- ExportedHandler with fetch + scheduled
+  index.ts              Entry point — ExportedHandler with fetch + scheduled
   routes.ts             Path-based router, route handlers (trigger, status)
-  ipsum.ts              Fetch + parse ipsum.txt, precompute cumulative arrays
+  cf-api.ts             Minimal typed Cloudflare Lists API client (raw fetch)
+  ipsum.ts              Fetch + parse ipsum.txt, ETag caching, cumulative arrays
   cloudflare-lists.ts   Ensure lists, replace items, poll bulk operations
-  status-page.ts        Fetch list metadata, render HTML dashboard
+  status-page.ts        Fetch list metadata, render HTML dashboard with KV state
   log.ts                Structured JSON logger with runId correlation
-  consts.ts             URLs, levels, list names, polling config
-  env.d.ts              Env type augmentation for secrets
+  consts.ts             URLs, levels, list names, polling config, parseLevels
+  env.d.ts              Env type augmentation for secrets + IPSUM_LEVELS
 ```
+
+### Key design decisions
+
+- **No SDK** — The `cloudflare` npm package adds 1.3MB to the bundle. Instead, `cf-api.ts` is a 120-line typed client wrapping 4 raw `fetch` calls. Bundle: **20 KiB / 6 KiB gzip**, 4ms startup.
+- **Precomputed cumulative arrays** — Built once bottom-up after parsing. Level N's array is `bucket[N].concat(bucket[N+1]...bucket[8])`, constructed in a single pass from level 8 down. No repeated iteration.
+- **Regex parsing** — `parseInt` + `/^\d+$/` + IPv4/IPv6 regexes instead of Zod for 200k+ lines.
+- **Per-level error resilience** — `syncAllLists` catches errors per level and records them in the result. Only throws if *all* levels fail.
+- **ETag skip** — Stores the GitHub ETag in KV. If the feed hasn't changed, the sync is skipped entirely (304 response).
 
 ### Structured log trail
 
 Every cron/manual run produces a consistent log trail with a shared `runId`:
 
 ```
-run_start -> ipsum_fetch_start -> ipsum_fetch_complete -> ipsum_parsed
-  -> ensure_lists_start -> list_exists/list_created (x8) -> ensure_lists_complete
-  -> replace_items_start -> replace_items_submitted -> bulk_op_complete (x8)
-  -> list_sync_complete (x8) -> run_complete
+run_start → ipsum_fetch_start → ipsum_fetch_complete → ipsum_parsed
+  → ensure_lists_start → list_exists/list_created (×N) → ensure_lists_complete
+  → replace_items_start → replace_items_submitted → bulk_op_complete (×N)
+  → list_sync_complete (×N) → run_complete
 ```
 
+On ETag match: `run_start → ipsum_fetch_start → ipsum_not_modified → run_skipped`
+
 On failure: `run_failed` with `error`, `stack`, `durationMs`.
-
-### Performance
-
-- **Parsing**: Regex + `parseInt` instead of Zod for 200k+ lines (~5--10x faster)
-- **Cumulative arrays**: Built once bottom-up (`concat` from level 8 down), not recomputed per level
-- **Bundle**: ~1290 KiB / 151 KiB gzip, 8ms startup
 
 ## Cloudflare IP Lists limits
 
@@ -125,8 +139,8 @@ On failure: `run_failed` with `error`, `stack`, `durationMs`.
 | Pro/Business | 10 | 10,000 |
 | Enterprise | 1,000 | 500,000 |
 
-Level 1 alone has ~200k IPs. You need an Enterprise plan (or to skip level 1) to fit all 8 lists.
+Level 1 alone has ~200k IPs. Use `IPSUM_LEVELS=3,4,5,6,7,8` on non-Enterprise plans to stay within limits.
 
 ## License
 
-MIT -- Erfi Anugrah
+MIT — Erfi Anugrah 2026
