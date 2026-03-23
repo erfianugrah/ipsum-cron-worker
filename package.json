@@ -6,11 +6,19 @@
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev --test-scheduled",
 		"start": "wrangler dev --test-scheduled",
-		"cf-typegen": "wrangler types"
+		"cf-typegen": "wrangler types",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"typecheck": "tsc --noEmit"
 	},
 	"devDependencies": {
+		"@cloudflare/vitest-pool-workers": "^0.13.3",
 		"@types/node": "^25.5.0",
 		"typescript": "^5.5.2",
+		"vitest": "^4.1.0",
 		"wrangler": "^4.76.0"
+	},
+	"dependencies": {
+		"zod": "^4.3.6"
 	}
 }
