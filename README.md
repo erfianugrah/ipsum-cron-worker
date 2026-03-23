@@ -12,10 +12,10 @@ Cloudflare Worker that syncs the [IPsum](https://github.com/stamparm/ipsum) thre
 
 ## Endpoints
 
-| Path | Description |
-|------|-------------|
-| `GET /` | HTML status dashboard showing all lists, IP counts, last sync state, and timing |
-| `GET /trigger` | Manually trigger a sync; returns JSON with full sync state |
+| Path           | Description                                                                     |
+| -------------- | ------------------------------------------------------------------------------- |
+| `GET /`        | HTML status dashboard showing all lists, IP counts, last sync state, and timing |
+| `GET /trigger` | Manually trigger a sync; returns JSON with full sync state                      |
 
 ## Setup
 
@@ -84,14 +84,14 @@ npx vitest run -t "test name pattern"         # by name
 
 ### Test coverage
 
-| File | Tests | Covers |
-|------|-------|--------|
-| `test/consts.test.ts` | 13 | List naming, CF constraints, description limits, `parseLevels` (defaults, ranges, dedup, edge cases) |
-| `test/log.test.ts` | 4 | Structured JSON output, `runId` correlation across all log levels |
-| `test/ipsum.test.ts` | 21 | Parsing (comments, blanks, invalid IPs, non-integer scores, out-of-range), cumulative arrays (subset property), `fetchIpsum` (success, 404, network error, ETag 304, ETag caching, no-KV mode) |
-| `test/cloudflare-lists.test.ts` | 16 | Bulk op polling (success, retry, failure, timeout), `ensureLists` (create all, reuse, partial, subset, API error), `replaceListItems` (normal, empty, error), `syncAllLists` (e2e, ordering, subset levels, per-level error resilience) |
-| `test/status-page.test.ts` | 12 | `fetchListStatus` (full, partial, empty, filtering), `renderStatusPage` (HTML structure, stats, missing levels, links, sync state display, skipped state, error highlighting) |
-| `test/index.test.ts` | 8 | Scheduled handler (runId correlation, error path, breadcrumb ordering, KV persistence), fetch handler (`/trigger` success/error, `/`, unknown paths, manual trigger log correlation) |
+| File                            | Tests | Covers                                                                                                                                                                                                                                  |
+| ------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `test/consts.test.ts`           | 13    | List naming, CF constraints, description limits, `parseLevels` (defaults, ranges, dedup, edge cases)                                                                                                                                    |
+| `test/log.test.ts`              | 4     | Structured JSON output, `runId` correlation across all log levels                                                                                                                                                                       |
+| `test/ipsum.test.ts`            | 21    | Parsing (comments, blanks, invalid IPs, non-integer scores, out-of-range), cumulative arrays (subset property), `fetchIpsum` (success, 404, network error, ETag 304, ETag caching, no-KV mode)                                          |
+| `test/cloudflare-lists.test.ts` | 16    | Bulk op polling (success, retry, failure, timeout), `ensureLists` (create all, reuse, partial, subset, API error), `replaceListItems` (normal, empty, error), `syncAllLists` (e2e, ordering, subset levels, per-level error resilience) |
+| `test/status-page.test.ts`      | 12    | `fetchListStatus` (full, partial, empty, filtering), `renderStatusPage` (HTML structure, stats, missing levels, links, sync state display, skipped state, error highlighting)                                                           |
+| `test/index.test.ts`            | 8     | Scheduled handler (runId correlation, error path, breadcrumb ordering, KV persistence), fetch handler (`/trigger` success/error, `/`, unknown paths, manual trigger log correlation)                                                    |
 
 ## Architecture
 
@@ -110,10 +110,9 @@ src/
 
 ### Key design decisions
 
-- **No SDK** — The `cloudflare` npm package adds 1.3MB to the bundle. Instead, `cf-api.ts` is a 120-line typed client wrapping 4 raw `fetch` calls. Bundle: **20 KiB / 6 KiB gzip**, 4ms startup.
 - **Precomputed cumulative arrays** — Built once bottom-up after parsing. Level N's array is `bucket[N].concat(bucket[N+1]...bucket[8])`, constructed in a single pass from level 8 down. No repeated iteration.
 - **Regex parsing** — `parseInt` + `/^\d+$/` + IPv4/IPv6 regexes instead of Zod for 200k+ lines.
-- **Per-level error resilience** — `syncAllLists` catches errors per level and records them in the result. Only throws if *all* levels fail.
+- **Per-level error resilience** — `syncAllLists` catches errors per level and records them in the result. Only throws if _all_ levels fail.
 - **ETag skip** — Stores the GitHub ETag in KV. If the feed hasn't changed, the sync is skipped entirely (304 response).
 
 ### Structured log trail
@@ -133,14 +132,12 @@ On failure: `run_failed` with `error`, `stack`, `durationMs`.
 
 ## Cloudflare IP Lists limits
 
-| Plan | Max lists | Max items (across all lists) |
-|------|-----------|------------------------------|
-| Free | 1 | 10,000 |
-| Pro/Business | 10 | 10,000 |
-| Enterprise | 1,000 | 500,000 |
+| Plan         | Max lists | Max items (across all lists) |
+| ------------ | --------- | ---------------------------- |
+| Free         | 1         | 10,000                       |
+| Pro/Business | 10        | 10,000                       |
+| Enterprise   | 1,000     | 500,000                      |
 
 Level 1 alone has ~200k IPs. Use `IPSUM_LEVELS=3,4,5,6,7,8` on non-Enterprise plans to stay within limits.
 
-## License
-
-MIT — Erfi Anugrah 2026
+[## MIT License](./LICENSE)
