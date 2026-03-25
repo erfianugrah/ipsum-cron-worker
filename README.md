@@ -1,8 +1,8 @@
 # ipsum-cron-worker
 
-Cloudflare Worker that syncs the [IPsum](https://github.com/stamparm/ipsum) threat intelligence feed into Cloudflare IP Lists — one per threat level. Runs daily via cron trigger and exposes a status dashboard at [ipsum.erfi.io](https://ipsum.erfi.io).
+Cloudflare Worker that syncs the [IPsum](https://github.com/stamparm/ipsum) threat intelligence feed into Cloudflare IP Lists — one per threat level. Runs daily via cron trigger and exposes a status dashboard at the root.
 
-## How it works
+#f How it works
 
 1. **Fetch** — Downloads `ipsum.txt` from GitHub (~200k IPs with blacklist hit scores 1–8). Uses `ETag` / `If-None-Match` to skip the download when the feed hasn't changed.
 2. **Parse** — Buckets IPs by exact score using fast regex validation, then precomputes cumulative arrays (level N = all IPs appearing on N+ blacklists).
@@ -53,7 +53,7 @@ By default all 8 levels are synced. To sync only specific levels (e.g. 3–8 to 
 npm run deploy
 ```
 
-The worker deploys to `ipsum.erfi.io` (configured in `wrangler.jsonc`) with a daily cron at 04:00 UTC.
+The worker deploys to the route you set (configured in `wrangler.jsonc`) with a daily cron at 04:00 UTC.
 
 ## Development
 
